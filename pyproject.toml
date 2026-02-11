@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_teleoperator_xarm_vr"
+version = "0.0.1"
+description = "LeRobot xArm7 Teleoperation with VR integration"
+readme = "README.md"
+authors = [
+  { name = "Jonas Stehr"},
+]
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "lerobot>=0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lerobot_teleoperator_xarm_vr*"]
+exclude = ["*.egg-info"]
