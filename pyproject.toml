@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
   "lerobot>=0.4",
+  "scipy",
 ]
 
 [tool.setuptools.packages.find]

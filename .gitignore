@@ -1,1 +1,5 @@
+.venv
 __pycache__/
+# ignore egg folders
+*.egg
+*.egg-info/
