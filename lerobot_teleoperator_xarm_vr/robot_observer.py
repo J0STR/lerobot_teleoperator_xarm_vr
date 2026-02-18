@@ -152,7 +152,7 @@ class Robot_Observer():
         return position
     
     def read_joints(self)->list[float]:
-        code, [joints, velocity, effort] = self.robot.get_joint_states()
+        code, [joints, velocity, effort] = self.robot.get_joint_states(is_radian=True)
         return joints
     
     def read_gripper(self)->float:

@@ -105,7 +105,6 @@ class xArm7_VR_Teleop(Teleoperator):
         action_left = self.robot_observer_left.process_inputs(latest_data_bytes_left)
 
         # write action to dict
-        action = np.hstack((action_right, action_left))
         action = {f"right_joint_{i+1}.pos": val for i, val in enumerate(action_right[:-1])}
         action["right_gripper.pos"] = action_right[-1]
         action.update({f"left_joint_{i+1}.pos": val for i, val in enumerate(action_left[:-1])})
