@@ -30,7 +30,7 @@ class xArm7_VR_Teleop(Teleoperator):
         self.sock_right.bind((self.config.local_host, int(self.config.port_right)))
         self.sock_right.setblocking(False)
         # Robot vars
-        self.robot_observer_right = Robot_Observer(self.config.robot_right)
+        self.robot_observer_right = Robot_Observer(self.config.robot_right,g2=True)
         self.robot_observer_left = Robot_Observer(self.config.robot_left)
 
 

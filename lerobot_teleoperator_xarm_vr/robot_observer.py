@@ -20,22 +20,20 @@ def process_controller_data(data_bytes):
             print(f"JSON Error: {e}")
 
 class Robot_Observer():
-    def __init__(self, ip: str):
+    def __init__(self, ip: str, g2:bool=False):
         self.robot = XArmAPI(ip)
         self.init_pose = init_pose
 
-        code, pos = self.robot.get_gripper_position()
-        if code != 0:
-            self.gripper_pos = pos
-        else:
-            self.gripper_pos = 840.0 # default gripper position if error 
+        self.g2 = g2
+        pos = self.read_gripper()
+        self.gripper_pos = pos
 
         self.gripper_max = 840.0
         self.last_pos = np.array([0.0, 0.0, 0.0])
         self.last_rot = R.from_quat([0.0, 0.0, 0.0, 1.0]) # identity quaternion
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
-        self.v_joints = np.pi/2 # 90 deg/s
+        self.v_joints = np.pi/3 # 90 deg/s
         self.v_xyz = 100 # mm/s
 
         self.button_already_pressed = False
@@ -43,7 +41,7 @@ class Robot_Observer():
     def process_inputs(self, latest_data_bytes):
         
         current_joints = self.read_joints()
-        current_grip = self.read_gripper()
+        current_grip = self.gripper_pos
         action = np.hstack((current_joints, current_grip))
 
         if latest_data_bytes is not None:
@@ -53,22 +51,30 @@ class Robot_Observer():
         # check buttons
         # close gripper
         if formated_data['trigger']:
-            self.gripper_pos -= 10
+            #self.gripper_pos = self.read_gripper()
+            self.gripper_pos -= 20
             self.gripper_pos = np.clip(self.gripper_pos, 0, self.gripper_max)
             action[-1] = self.gripper_pos
         
         # open gripper
         if formated_data['grip']:
-            self.gripper_pos += 10
+            #self.gripper_pos = self.read_gripper()
+            self.gripper_pos += 20
             self.gripper_pos = np.clip(self.gripper_pos, 0, self.gripper_max)
             action[-1] = self.gripper_pos
         
         # reset button
         if formated_data["btn_by"]:
-            delta = self.init_pose - current_joints
-            delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
-            angles = current_joints + delta
-            action[:-1] = angles
+            code_robo, [error_code_robo, warn_code]= self.robot.get_err_warn_code()
+            if code_robo == 0 and error_code_robo!=0: 
+                self.robot.motion_enable(enable=True)
+                self.robot.set_mode(1)
+                self.robot.set_state(0)
+            else:
+                delta = self.init_pose - current_joints
+                delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
+                angles = current_joints + delta
+                action[:-1] = angles
 
         if formated_data["btn_ax"]:
             # Get current raw values from Godot
@@ -156,6 +162,10 @@ class Robot_Observer():
         return joints
     
     def read_gripper(self)->float:
+        if self.g2:
+            code, position = self.robot.get_gripper_g2_position()
+            position = position*10
+            return position
         code, position = self.robot.get_gripper_position()
         return position
     
