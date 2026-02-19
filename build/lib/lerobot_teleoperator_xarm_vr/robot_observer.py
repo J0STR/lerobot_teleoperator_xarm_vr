@@ -33,7 +33,7 @@ class Robot_Observer():
         self.last_rot = R.from_quat([0.0, 0.0, 0.0, 1.0]) # identity quaternion
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
-        self.v_joints = np.pi/3 # 90 deg/s
+        self.v_joints = np.pi/4 # 90 deg/s
         self.v_xyz = 100 # mm/s
 
         self.button_already_pressed = False
@@ -123,30 +123,38 @@ class Robot_Observer():
                 # Clip rotation speed (radians per step)
                 # If we try to rotate too fast, the servo mode might error out
                 norm = np.linalg.norm(remap_rot)
-                if norm > self.max_rot_step:
-                    remap_rot = (remap_rot / norm) * self.max_rot_step
+                if norm > self.v_joints*self.dt:
+                    remap_rot = (remap_rot / norm) * self.v_joints*self.dt
 
                 # Combine [x, y, z, rx, ry, rz]
                 full_pose = np.hstack((remap_pos, remap_rot))
 
-                current_pos = self.read_position()
-
-                # full pose in roll pitch yaw (degrees) for debugging:
-                rpy_old = R.from_rotvec(current_pos[3:]).as_euler('xyz', degrees=True)
-                rpy_step = R.from_rotvec(remap_rot).as_euler('xyz', degrees=True)
-
-                new_pos = current_pos[:3] + full_pose[:3]
-                new_rot = rpy_old + rpy_step
-
-                new_pos = np.hstack((new_pos, new_rot * (np.pi/180))) # Convert back to radians for the robot
-                angles = self.inverse_kinematic(new_pos)             
+                # calculate target joints for VLA
+                # --- 1. Read current robot state (position + orientation) ---
+                current_absolute_aa = self.read_position()
+                current_pos = np.array(current_absolute_aa[:3])
+                current_rot_vec = np.array(current_absolute_aa[3:])
+                # --- 2. Convert current orientation to a Scipy Rotation Object ---
+                current_rot_obj = R.from_rotvec(current_rot_vec)
+                # --- 3. Convert your DELTA (remap_rot) to a Scipy Rotation Object ---
+                delta_rot_obj = R.from_rotvec(remap_rot)
+                # --- 4. COMBINE rotations (Matrix Multiplication) ---
+                target_rot_obj = delta_rot_obj * current_rot_obj
+                # --- 5. Convert to RPY (Euler) for your solver ---
+                target_rpy = target_rot_obj.as_euler('xyz', degrees=False) 
+                # --- 6. Calculate Target Position ---
+                target_pos = current_pos + remap_pos
+                # --- 7. Pass to IK Solver ---
+                target_pose_rpy = np.hstack((target_pos, target_rpy))
+                code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)          
 
                 # Update "Last" values for the next loop
                 self.last_pos = curr_pos
                 self.last_rot = curr_rot_obj
+             
                 
                 # Return action
-                action[:-1] = angles
+                action[:-1] = angle
         else:
             self.button_already_pressed = False
 
