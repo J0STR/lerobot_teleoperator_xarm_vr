@@ -1,4 +1,4 @@
-# lerobot_teleoperator_xarm_vr
+# Documentation
 
 Works with Oculus Quest 2/3 via Godot.
 
