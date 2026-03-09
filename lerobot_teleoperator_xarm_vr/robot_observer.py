@@ -33,7 +33,7 @@ class Robot_Observer():
         self.last_rot = R.from_quat([0.0, 0.0, 0.0, 1.0]) # identity quaternion
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
-        self.v_joints = np.pi/4 # 90 deg/s
+        self.v_joints = np.pi/2 # 90 deg/s
         self.v_xyz = 100 # mm/s
 
         self.button_already_pressed = False
@@ -151,6 +151,12 @@ class Robot_Observer():
                 # Update "Last" values for the next loop
                 self.last_pos = curr_pos
                 self.last_rot = curr_rot_obj
+
+                # read joints and imit step to reduce jumps
+                current_joint = self.read_joints()
+                delta = np.array(angle) - current_joint
+                delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
+                angle = current_joint + delta
              
                 
                 # Return action
