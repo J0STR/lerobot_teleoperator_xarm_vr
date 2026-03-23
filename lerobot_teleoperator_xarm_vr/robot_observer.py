@@ -146,6 +146,7 @@ class Robot_Observer():
                 target_pos = current_pos + remap_pos
                 # --- 7. Pass to IK Solver ---
                 target_pose_rpy = np.hstack((target_pos, target_rpy))
+                
                 code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)          
 
                 # Update "Last" values for the next loop
@@ -156,8 +157,16 @@ class Robot_Observer():
                 current_joint = self.read_joints()
                 delta = np.array(angle) - current_joint
                 delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
-                angle = current_joint + delta
-             
+                actual_angle = current_joint + delta
+                # angle 7,6,5,3 can get the actio directly
+                actual_angle[6] = angle[6]
+                actual_angle[5] = angle[5]
+                actual_angle[4] = angle[4]
+                actual_angle[3] = angle[3]
+               # actual_angle[2] = angle[2]
+                actual_angle[1] = angle[1]
+                actual_angle[0] = angle[0]
+                            
                 
                 # Return action
                 action[:-1] = angle
