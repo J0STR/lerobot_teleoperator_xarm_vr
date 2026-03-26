@@ -153,23 +153,25 @@ class Robot_Observer():
                 self.last_pos = curr_pos
                 self.last_rot = curr_rot_obj
 
-                # read joints and imit step to reduce jumps
-                current_joint = self.read_joints()
-                delta = np.array(angle) - current_joint
-                delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
-                actual_angle = current_joint + delta
-                # angle 7,6,5,3 can get the actio directly
-                actual_angle[6] = angle[6]
-                actual_angle[5] = angle[5]
-                actual_angle[4] = angle[4]
-                actual_angle[3] = angle[3]
-               # actual_angle[2] = angle[2]
-                actual_angle[1] = angle[1]
-                actual_angle[0] = angle[0]
-                            
                 
-                # Return action
-                action[:-1] = angle
+                if code == 0:
+                    # read joints and imit step to reduce jumps
+                    current_joint = self.read_joints()
+                    delta = np.array(angle) - current_joint
+                    delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
+                    actual_angle = current_joint + delta
+                    # angle 7,6,5,3 can get the actio directly
+                    actual_angle[6] = angle[6]
+                    actual_angle[5] = angle[5]
+                    actual_angle[4] = angle[4]
+                    actual_angle[3] = angle[3]
+                     # actual_angle[2] = angle[2]
+                    actual_angle[1] = angle[1]
+                    actual_angle[0] = angle[0]
+                            
+                if code == 0:
+                    # Return action
+                    action[:-1] = angle
         else:
             self.button_already_pressed = False
 
