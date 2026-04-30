@@ -29,8 +29,6 @@ class Robot_Observer():
         self.gripper_pos = pos
 
         self.gripper_max = 840.0
-        self.last_pos = np.array([0.0, 0.0, 0.0])
-        self.last_rot = R.from_quat([0.0, 0.0, 0.0, 1.0]) # identity quaternion
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
         self.v_joints = np.pi/2 # 90 deg/s
@@ -59,7 +57,7 @@ class Robot_Observer():
             formated_data = process_controller_data(latest_data_bytes) 
         else:
             return action      
-        # check buttons
+        
         # close gripper
         if formated_data['trigger']:
             #self.gripper_pos = self.read_gripper()
@@ -87,15 +85,14 @@ class Robot_Observer():
                 angles = current_joints + delta
                 action[:-1] = angles
 
+        # arm movement
         if formated_data["btn_ax"]:
-            # Get current raw values from Godot
+            # get controller pos
             curr_pos = np.array(formated_data["pos"])
-            # Godot sends [x, y, z, w]. Scipy accepts [x, y, z, w]
             curr_quat = np.array(formated_data["quat"]) 
-
+            # calc rotation offset between robot and controller
             curr_vr_rot_raw = R.from_quat(curr_quat)
             vr_rot_vec = curr_vr_rot_raw.as_rotvec()
-
             if formated_data["hand"] == "right":
                 remap_vr_curr_vec = np.array([
                         -vr_rot_vec[0], 
@@ -110,11 +107,8 @@ class Robot_Observer():
                     ])                
             remap_vr_curr_obj = R.from_rotvec(remap_vr_curr_vec) 
 
+            # check if button pressed
             if not self.button_already_pressed:
-               # FIRST FRAME of press: Just store the state
-                self.last_pos = curr_pos
-                self.last_rot = R.from_quat(curr_quat)
-
                 # safe controller and robot pos as reference
                 self.pos_when_triggered = curr_pos
                 self.robot_rot_at_trigger = R.from_rotvec(current_rot_vec)
@@ -124,12 +118,11 @@ class Robot_Observer():
                 self.rot_offset = self.robot_rot_at_trigger * remap_vr_curr_obj.inv()                    
                 # button state
                 self.button_already_pressed = True
-            
             else:
-               # calcuate movement based on the reference
-                delta_pos = curr_pos - self.last_pos
+                # calcuate movement based on the reference
+                delta_pos = curr_pos - self.pos_when_triggered
                 delta_pos_mm = delta_pos * 1000
-
+                # map rotation to robot frame
                 if formated_data["hand"] == "right":
                     remap_pos = np.array([-delta_pos_mm[0],
                                           delta_pos_mm[2],
@@ -138,30 +131,16 @@ class Robot_Observer():
                     remap_pos = np.array([delta_pos_mm[0],
                                           -delta_pos_mm[2],
                                           delta_pos_mm[1]])
-
+                # map rotation to offset
                 target_pos_abs = self.robot_pos_at_trigger + remap_pos
+                # calc pose 
                 target_rot_obj = self.rot_offset * remap_vr_curr_obj
                 target_rpy_abs = target_rot_obj.as_euler('xyz', degrees=False)
+                # merge xyz and orientation
                 target_pose_rpy = np.hstack((target_pos_abs, target_rpy_abs))
 
-
+                # calculate joints with IK
                 code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)
-
-                
-                # if code == 0:
-                #     # read joints and imit step to reduce jumps
-                #     current_joint = self.read_joints()
-                #     delta = np.array(angle) - current_joint
-                #     delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
-                #     actual_angle = current_joint + delta
-                #     # angle 7,6,5,3 can get the actio directly
-                #     actual_angle[6] = angle[6]
-                #     actual_angle[5] = angle[5]
-                #     actual_angle[4] = angle[4]
-                #     actual_angle[3] = angle[3]
-                #      # actual_angle[2] = angle[2]
-                #     actual_angle[1] = angle[1]
-                #     actual_angle[0] = angle[0]
                             
                 if code == 0:
                     # Return action

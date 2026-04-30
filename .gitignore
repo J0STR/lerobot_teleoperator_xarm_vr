@@ -3,3 +3,4 @@ __pycache__/
 # ignore egg folders
 *.egg
 *.egg-info/
+build/

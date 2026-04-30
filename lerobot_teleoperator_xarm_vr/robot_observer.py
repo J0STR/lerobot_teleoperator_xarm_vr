@@ -120,7 +120,7 @@ class Robot_Observer():
                 self.button_already_pressed = True
             else:
                 # calcuate movement based on the reference
-                delta_pos = curr_pos - self.last_pos
+                delta_pos = curr_pos - self.pos_when_triggered
                 delta_pos_mm = delta_pos * 1000
                 # map rotation to robot frame
                 if formated_data["hand"] == "right":
