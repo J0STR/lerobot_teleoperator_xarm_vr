@@ -29,12 +29,18 @@ class Robot_Observer():
         self.gripper_pos = pos
 
         self.gripper_max = 840.0
-        self.last_pos = np.array([0.0, 0.0, 0.0])
-        self.last_rot = R.from_quat([0.0, 0.0, 0.0, 1.0]) # identity quaternion
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
         self.v_joints = np.pi/2 # 90 deg/s
         self.v_xyz = 100 # mm/s
+
+        ## vars for arm movement
+        self.pos_when_triggered = None
+        self.rot_when_triggered = None
+        self.robot_pos_at_trigger = None
+        self.robot_rot_at_trigger = None
+        self.button_already_pressed = False
+        self.rot_offset = None
 
         self.button_already_pressed = False
 
@@ -43,12 +49,15 @@ class Robot_Observer():
         current_joints = self.read_joints()
         current_grip = self.gripper_pos
         action = np.hstack((current_joints, current_grip))
+        current_absolute_aa = self.read_position()
+        current_pos = np.array(current_absolute_aa[:3])
+        current_rot_vec = np.array(current_absolute_aa[3:])
 
         if latest_data_bytes is not None:
             formated_data = process_controller_data(latest_data_bytes) 
         else:
             return action      
-        # check buttons
+        
         # close gripper
         if formated_data['trigger']:
             #self.gripper_pos = self.read_gripper()
@@ -76,98 +85,62 @@ class Robot_Observer():
                 angles = current_joints + delta
                 action[:-1] = angles
 
+        # arm movement
         if formated_data["btn_ax"]:
-            # Get current raw values from Godot
+            # get controller pos
             curr_pos = np.array(formated_data["pos"])
-            # Godot sends [x, y, z, w]. Scipy accepts [x, y, z, w]
             curr_quat = np.array(formated_data["quat"]) 
+            # calc rotation offset between robot and controller
+            curr_vr_rot_raw = R.from_quat(curr_quat)
+            vr_rot_vec = curr_vr_rot_raw.as_rotvec()
+            if formated_data["hand"] == "right":
+                remap_vr_curr_vec = np.array([
+                        -vr_rot_vec[0], 
+                        -vr_rot_vec[2], 
+                        -vr_rot_vec[1]  
+                    ])
+            if formated_data["hand"] == "left":
+                remap_vr_curr_vec = np.array([
+                        vr_rot_vec[0],
+                        vr_rot_vec[2], 
+                        -vr_rot_vec[1] 
+                    ])                
+            remap_vr_curr_obj = R.from_rotvec(remap_vr_curr_vec) 
 
+            # check if button pressed
             if not self.button_already_pressed:
-                # FIRST FRAME of press: Just store the state
-                self.last_pos = curr_pos
-                self.last_rot = R.from_quat(curr_quat)
+                # safe controller and robot pos as reference
+                self.pos_when_triggered = curr_pos
+                self.robot_rot_at_trigger = R.from_rotvec(current_rot_vec)
+                self.robot_pos_at_trigger = current_pos
+                # save controller and robot offset to keep control axis
+                # when the arm is rotated
+                self.rot_offset = self.robot_rot_at_trigger * remap_vr_curr_obj.inv()                    
+                # button state
                 self.button_already_pressed = True
-            
             else:
-                # --- POSITION CALCULATION ---
+                # calcuate movement based on the reference
                 delta_pos = curr_pos - self.last_pos
-                delta_pos_mm = delta_pos * 1000                    
-                # Remap Position (Godot -> Robot)
-                # Godot X -> Robot X (inverted)
-                # Godot Y -> Robot Z
-                # Godot Z -> Robot Y
+                delta_pos_mm = delta_pos * 1000
+                # map rotation to robot frame
                 if formated_data["hand"] == "right":
-                    remap_pos = np.array([-delta_pos_mm[0], delta_pos_mm[2], delta_pos_mm[1]])
+                    remap_pos = np.array([-delta_pos_mm[0],
+                                          delta_pos_mm[2],
+                                          delta_pos_mm[1]])
                 if formated_data["hand"] == "left":
-                    remap_pos = np.array([delta_pos_mm[0], -delta_pos_mm[2], delta_pos_mm[1]])
+                    remap_pos = np.array([delta_pos_mm[0],
+                                          -delta_pos_mm[2],
+                                          delta_pos_mm[1]])
+                # map rotation to offset
+                target_pos_abs = self.robot_pos_at_trigger + remap_pos
+                # calc pose 
+                target_rot_obj = self.rot_offset * remap_vr_curr_obj
+                target_rpy_abs = target_rot_obj.as_euler('xyz', degrees=False)
+                # merge xyz and orientation
+                target_pose_rpy = np.hstack((target_pos_abs, target_rpy_abs))
 
-                # --- ROTATION CALCULATION ---
-                curr_rot_obj = R.from_quat(curr_quat)                    
-                # Calculate the relative rotation: Diff = Current * Inverse(Last)
-                delta_rot_obj = curr_rot_obj * self.last_rot.inv()                    
-                # Convert to Rotation Vector (which xArm calls "Axis Angle Pose" rx/ry/rz)
-                # This returns a 3D vector where length = angle, direction = axis
-                rot_vec = delta_rot_obj.as_rotvec()
-                # Remap Rotation Axis 
-                # We apply the SAME coordinate shuffle to the rotation vector
-                if formated_data["hand"] == "right":
-                    remap_rot = np.array([-rot_vec[0], rot_vec[2], rot_vec[1]])
-                if formated_data["hand"] == "left":
-                    remap_rot = np.array([rot_vec[0], -rot_vec[2], rot_vec[1]])
-
-                # --- SAFETY CLIPPING ---
-                # Clip position speed (mm per step)
-                v_limit = self.v_xyz * self.dt
-                remap_pos = np.clip(remap_pos, -v_limit, v_limit)
-
-                # Clip rotation speed (radians per step)
-                # If we try to rotate too fast, the servo mode might error out
-                norm = np.linalg.norm(remap_rot)
-                if norm > self.v_joints*self.dt:
-                    remap_rot = (remap_rot / norm) * self.v_joints*self.dt
-
-                # Combine [x, y, z, rx, ry, rz]
-                full_pose = np.hstack((remap_pos, remap_rot))
-
-                # calculate target joints for VLA
-                # --- 1. Read current robot state (position + orientation) ---
-                current_absolute_aa = self.read_position()
-                current_pos = np.array(current_absolute_aa[:3])
-                current_rot_vec = np.array(current_absolute_aa[3:])
-                # --- 2. Convert current orientation to a Scipy Rotation Object ---
-                current_rot_obj = R.from_rotvec(current_rot_vec)
-                # --- 3. Convert your DELTA (remap_rot) to a Scipy Rotation Object ---
-                delta_rot_obj = R.from_rotvec(remap_rot)
-                # --- 4. COMBINE rotations (Matrix Multiplication) ---
-                target_rot_obj = delta_rot_obj * current_rot_obj
-                # --- 5. Convert to RPY (Euler) for your solver ---
-                target_rpy = target_rot_obj.as_euler('xyz', degrees=False) 
-                # --- 6. Calculate Target Position ---
-                target_pos = current_pos + remap_pos
-                # --- 7. Pass to IK Solver ---
-                target_pose_rpy = np.hstack((target_pos, target_rpy))
-                
-                code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)          
-
-                # Update "Last" values for the next loop
-                self.last_pos = curr_pos
-                self.last_rot = curr_rot_obj
-
-                
-                if code == 0:
-                    # read joints and imit step to reduce jumps
-                    current_joint = self.read_joints()
-                    delta = np.array(angle) - current_joint
-                    delta = np.clip(delta,-self.v_joints*self.dt,self.v_joints*self.dt)
-                    actual_angle = current_joint + delta
-                    # angle 7,6,5,3 can get the actio directly
-                    actual_angle[6] = angle[6]
-                    actual_angle[5] = angle[5]
-                    actual_angle[4] = angle[4]
-                    actual_angle[3] = angle[3]
-                     # actual_angle[2] = angle[2]
-                    actual_angle[1] = angle[1]
-                    actual_angle[0] = angle[0]
+                # calculate joints with IK
+                code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)
                             
                 if code == 0:
                     # Return action
