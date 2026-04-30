@@ -1,2 +1,0 @@
-from .config_xarm_vr_teleop import xArm7_VR_TeleopConfig
-from .xarm_vr_teleop import xArm7_VR_Teleop
