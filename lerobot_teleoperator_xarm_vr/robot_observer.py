@@ -31,12 +31,13 @@ class Robot_Observer():
         self.gripper_max = 840.0
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
-        self.v_joints = np.pi/2 # 90 deg/s
+        self.v_joints = np.pi # 90 deg/s
         self.v_xyz = 100 # mm/s
 
         ## vars for arm movement
         self.pos_when_triggered = None
         self.rot_when_triggered = None
+        self.last_rot = None
         self.robot_pos_at_trigger = None
         self.robot_rot_at_trigger = None
         self.button_already_pressed = False
@@ -115,7 +116,8 @@ class Robot_Observer():
                 self.robot_pos_at_trigger = current_pos
                 # save controller and robot offset to keep control axis
                 # when the arm is rotated
-                self.rot_offset = self.robot_rot_at_trigger * remap_vr_curr_obj.inv()                    
+                self.rot_offset = self.robot_rot_at_trigger * remap_vr_curr_obj.inv()   
+                self.last_rot = R.from_quat(curr_quat)                 
                 # button state
                 self.button_already_pressed = True
             else:
@@ -132,16 +134,36 @@ class Robot_Observer():
                                           -delta_pos_mm[2],
                                           delta_pos_mm[1]])
                 # map rotation to offset
-                target_pos_abs = self.robot_pos_at_trigger + remap_pos
-                # calc pose 
-                target_rot_obj = self.rot_offset * remap_vr_curr_obj
-                target_rpy_abs = target_rot_obj.as_euler('xyz', degrees=False)
-                # merge xyz and orientation
-                target_pose_rpy = np.hstack((target_pos_abs, target_rpy_abs))
+                target_pos = self.robot_pos_at_trigger + remap_pos
 
-                # calculate joints with IK
-                code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)
-                            
+                # ROTATION CALCULATION
+                curr_rot_obj = R.from_quat(curr_quat)                    
+                # Calculate the relative rotation: Diff = Current * Inverse(Last)
+                delta_rot_obj = curr_rot_obj * self.last_rot.inv()                    
+                rot_vec = delta_rot_obj.as_rotvec()
+                # Remap Rotation Axis 
+                # We apply the SAME coordinate shuffle to the rotation vector
+                if formated_data["hand"] == "right":
+                    remap_rot = np.array([-rot_vec[0], rot_vec[2], rot_vec[1]])
+                if formated_data["hand"] == "left":
+                    remap_rot = np.array([rot_vec[0], -rot_vec[2], rot_vec[1]])
+
+                # Clip rotation speed (radians per step)
+                norm = np.linalg.norm(remap_rot)
+                if norm > self.v_joints*self.dt:
+                    remap_rot = (remap_rot / norm) * self.v_joints*self.dt
+
+                current_rot_vec = np.array(current_absolute_aa[3:])
+                current_rot_obj = R.from_rotvec(current_rot_vec)
+                delta_rot_obj = R.from_rotvec(remap_rot)
+                target_rot_obj = delta_rot_obj * current_rot_obj
+                target_rpy = target_rot_obj.as_euler('xyz', degrees=False) 
+
+                target_pose_rpy = np.hstack((target_pos, target_rpy))
+                code, angle = self.robot.arm.get_inverse_kinematics(target_pose_rpy, input_is_radian=True,return_is_radian=True)          
+                # Update "Last" values for the next loop
+                self.last_rot = curr_rot_obj
+
                 if code == 0:
                     # Return action
                     action[:-1] = angle
