@@ -9,7 +9,7 @@ init_pose = np.array([-0.020695317536592484,
                          -0.008580705150961876,
                            0.6497616767883301,
                              0.018501725047826767,
-                               1.630096197128296,
+                               1.630096197128296-(np.pi/18),
                                  -0.0007919175550341606])
 
 def process_controller_data(data_bytes):
@@ -31,7 +31,7 @@ class Robot_Observer():
         self.gripper_max = 840.0
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
-        self.v_joints = np.pi # 90 deg/s
+        self.v_joints = 3*np.pi/4 # 90 deg/s
         self.v_xyz = 100 # mm/s
 
         ## vars for arm movement
