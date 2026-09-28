@@ -1,6 +1,7 @@
 from xarm.wrapper import XArmAPI
 import numpy as np
 import json
+import time
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
@@ -28,7 +29,7 @@ class Robot_Observer():
         pos = self.read_gripper()
         self.gripper_pos = pos
 
-        self.gripper_max = 840.0
+        self.gripper_max = 840
         self.max_rot_step = 0.2 #rad
         self.dt = 1/30 # 30 Hz
         self.v_joints = 3*np.pi/4 # 90 deg/s
@@ -48,8 +49,8 @@ class Robot_Observer():
     def process_inputs(self, latest_data_bytes):
         
         current_joints = self.read_joints()
-        current_grip = self.gripper_pos
-        action = np.hstack((current_joints, current_grip))
+        self.gripper_pos = self.read_gripper()
+        action = np.hstack((current_joints, self.gripper_pos))
         current_absolute_aa = self.read_position()
         current_pos = np.array(current_absolute_aa[:3])
         current_rot_vec = np.array(current_absolute_aa[3:])
@@ -57,19 +58,22 @@ class Robot_Observer():
         if latest_data_bytes is not None:
             formated_data = process_controller_data(latest_data_bytes) 
         else:
-            return action      
+            return action
+
+        if formated_data['btn_stick']:
+            self.robot.clean_gripper_error()
+            self.robot.set_gripper_enable(enable=False)
+            code = self.robot.set_gripper_enable(enable=True)
         
         # close gripper
         if formated_data['trigger']:
-            #self.gripper_pos = self.read_gripper()
-            self.gripper_pos -= 20
+            self.gripper_pos -= 100
             self.gripper_pos = np.clip(self.gripper_pos, 0, self.gripper_max)
             action[-1] = self.gripper_pos
         
         # open gripper
         if formated_data['grip']:
-            #self.gripper_pos = self.read_gripper()
-            self.gripper_pos += 20
+            self.gripper_pos += 100
             self.gripper_pos = np.clip(self.gripper_pos, 0, self.gripper_max)
             action[-1] = self.gripper_pos
         
@@ -182,10 +186,7 @@ class Robot_Observer():
         return joints
     
     def read_gripper(self)->float:
-        if self.g2:
-            code, position = self.robot.get_gripper_g2_position()
-            position = position*10
-            return position
+        position = 0
         code, position = self.robot.get_gripper_position()
         return position
     

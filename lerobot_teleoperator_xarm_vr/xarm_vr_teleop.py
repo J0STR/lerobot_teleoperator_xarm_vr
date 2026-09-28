@@ -1,6 +1,7 @@
 import logging
 import time
 import socket
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from lerobot.teleoperators.teleoperator import Teleoperator
@@ -32,6 +33,9 @@ class xArm7_VR_Teleop(Teleoperator):
         # Robot vars
         self.robot_observer_right = Robot_Observer(self.config.robot_right,g2=True)
         self.robot_observer_left = Robot_Observer(self.config.robot_left)
+        # Both arms are queried over blocking sockets (GIL released while waiting), so running
+        # them in parallel roughly halves get_action time. Each observer owns its own XArmAPI.
+        self._executor = ThreadPoolExecutor(max_workers=2)
 
 
     @property
@@ -101,8 +105,10 @@ class xArm7_VR_Teleop(Teleoperator):
                 break
         
         # process data and get action for both arms
-        action_right = self.robot_observer_right.process_inputs(latest_data_bytes_right)    
-        action_left = self.robot_observer_left.process_inputs(latest_data_bytes_left)
+        future_right = self._executor.submit(self.robot_observer_right.process_inputs, latest_data_bytes_right)
+        future_left = self._executor.submit(self.robot_observer_left.process_inputs, latest_data_bytes_left)
+        action_right = future_right.result()
+        action_left = future_left.result()
 
         # write action to dict
         action = {f"right_joint_{i+1}.pos": val for i, val in enumerate(action_right[:-1])}
@@ -122,5 +128,6 @@ class xArm7_VR_Teleop(Teleoperator):
     def disconnect(self) -> None:
         self.sock_left.close()
         self.sock_right.close()
+        self._executor.shutdown(wait=True)
         logger.info(f"{self} disconnected.")
         
